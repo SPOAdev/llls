@@ -1,0 +1,72 @@
+# Laravel
+/vendor/
+/node_modules/
+/public/storage
+/storage/*.key
+/.env
+/.phpunit.result.cache
+/.phpstorm.meta.php
+/.vscode/
+/.idea/
+/.env.backup
+
+# Laravel storage exceptions
+/storage/app/public
+
+# Laravel framework/cache
+/storage/framework/cache/data
+/storage/framework/sessions
+/storage/framework/views
+/storage/logs
+
+# Laravel Mix
+/public/hot
+/public/mix-manifest.json
+/public/storage
+/public/css
+/public/js
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Icon?
+
+# Backup or temp files
+*.bak
+*.tmp
+*.swp
+*.swo
+
+# PHPUnit
+/phpunit.result.cache
+
+# Composer
+composer.lock
+
+# NPM / Yarn / PNPM
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Coverage
+coverage/
+.phpunit.cache
+.clover
+.humbug_cache/
+.php_cs.cache
+
+# Log files
+*.log
+
+# Others
+*.sqlite
+*.sqlite3
+*.db
+*.zip
+*.tar.gz
+*.7z
+*.rar
+*.gz
+*.sql
+*.dump
