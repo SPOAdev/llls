@@ -1,7 +1,11 @@
 <?php
 return [
-    'debug' => env('LLLS_DEBUG', true),
-    'product_model' => null, // puede ser App\Models\Product::class
+    'debug' => env('LLLS_DEBUG', false),
+  	
+  	// Optional model relationship to link licenses to products
+    'product_model' => null, // can be App\Models\Product::class
+  	
+  	// License duration cycles (used when assigning expirations dynamically)
     'cycles' => [
         'daily' => fn () => now()->addDay(),
         'weekly' => fn () => now()->addWeek(),
@@ -10,6 +14,8 @@ return [
         'semiannually' => fn () => now()->addMonths(6),
         'annually' => fn () => now()->addYear(),
     ],
+  	
+  	// Defines how often the license cleanup runs (via Laravel scheduler)
   	'check_license_schedule' => 'daily',
 ];
 
