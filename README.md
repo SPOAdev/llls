@@ -1,75 +1,65 @@
 # Light Laravel License Server (LLLS)
 
 This is the official **Light License Laravel Server** (LLLS) built on top of Laravel 11. 
-It provides a lightweight and extensible API for license verification and client update integration. Check the official [LLLS Connector](https://github.com/spoadev/llls-connector) to integrate it to your plugins, addons or any development you wish to consult your client licenses.
+It provides a lightweight and extensible API for license verification and client update integration. Supports domain validation, Webhook integration (Hotmart), license payload delivery and expiration cycles. Check the official [LLLS Connector](https://github.com/spoadev/llls-connector) to integrate it to your plugins, addons or any development you wish to consult your client licenses.
+
+**Basic Flowchart**
+-- Create a license (model `License` provided) linked to a `User` by `user_id` (required)
+-- Renew the license using `php artisan licenses:renew {license_key}` in your custom logic or scheduled tasks
+-- Send a custom `update_payload` to your licensed software when it queries the license status (for update purposes)
+
+**Advanced Things**
+-- Optionally create a licenciable product (model `Product` provided)
+-- Products with a provider different from `local` must have a corresponding `Service` (`app/Services/`)
+-- That service must be registered in the `webhooks` map (`config/llls.php`)
 
 ---
 
-## Requirements
+## 🚀 Requirements
 
-- PHP 8.2 or higher
-- Laravel 11
-- MySQL / PostgreSQL / SQLite supported
-- Composer
+- PHP >= 8.2
+- Laravel >= 11
+- MySQL / MariaDB
 
 ---
 
-## Setup
-
-1. Clone the repository:
+## ⚙️ Installation
 
 ```bash
 git clone git@github.com:spoadev/llls.git
 cd llls
-```
-
-2. Install dependencies:
-
-```bash
 composer install
-```
-
-3. Set up the environment:
-
-```bash
 cp .env.example .env
 php artisan key:generate
-```
-
-4. Set up the database:
-
-```bash
 php artisan migrate
-php artisan db:seed
+php artisan db:seed --class=RolesAndPermissionsSeeder
 ```
 
-This will create the basic roles (`admin`, `user`) and assign default permissions:
+---
 
-- **admin**: `manage_license`, `manage_user`, `query_license`
-- **user**: `query_license`
+## 🔐 Roles & Permissions
 
-If user with ID 1 exists, it will automatically be assigned the `admin` role.
+Seeder included:
+
+| Role  | Permissions                   |
+|-------|-------------------------------|
+| admin | manage_license, manage_user, query_license |
+| user  | query_license                 |
+
+User ID 1 (if exists) gets assigned the `admin` role.
 
 ---
 
-## Note about `/bootstrap` folder
+## 🔧 Config
 
-The `/bootstrap/app.php` and `/bootstrap/providers.php` files ***will be replaced*** if you clone this repo. 
-
----
-
-## License Configuration
-
-The core settings are defined in `config/llls.php`:
+### `config/llls.php`
 
 ```php
 return [
+  	// Debug directive from .env file
     'debug' => env('LLLS_DEBUG', false),
-
-    // Optional model relationship to link licenses to products
-    'product_model' => null,
-
-    // License duration cycles (used when assigning expirations dynamically)
+  	
+  	// License duration cycles (used when assigning expirations dynamically)
     'cycles' => [
         'daily' => fn () => now()->addDay(),
         'weekly' => fn () => now()->addWeek(),
@@ -78,98 +68,124 @@ return [
         'semiannually' => fn () => now()->addMonths(6),
         'annually' => fn () => now()->addYear(),
     ],
-
-    // Defines how often the license cleanup runs (via Laravel scheduler)
-    'check_license_schedule' => 'hourly',
+  	
+  	// Defines how often the license cleanup runs (via Laravel scheduler)
+  	'check_license_schedule' => 'daily',
+  
+  	// Webhooks
+  	'webhooks' => [
+        'hotmart' => [
+            'events' => [
+                'PURCHASE_APPROVED' => 'log_only',
+                'PURCHASE_COMPLETE' => 'create_license',
+                'PURCHASE_REFUNDED' => 'cancel_license',
+                'PURCHASE_CANCELED' => 'cancel_license',
+                'PURCHASE_CHARGEBACK' => 'cancel_license',
+                'SUBSCRIPTION_CANCELLATION' => 'cancel_license',
+                'SWITCH_PLAN' => 'update_license',
+                'UPDATE_SUBSCRIPTION_CHARGE_DATE' => 'update_license',
+            ],
+        ],
+    ],
 ];
 ```
 
 ---
 
-## Creating a License (Tinker)
+## 🧪 Creating a License (Tinker)
 
-You can create test licenses directly via Tinker:
+You can manually create a license for testing purposes using Tinker.
 
-```bash
-php artisan tinker
-```
+**Step-by-step for a local product (optional) and license:**
 
 ```php
-License::create([
-  'user_id' => 1,
-  'license_key' => 'TEST-ABC-123',
-  'expires_at' => now()->addMonths(3),
-  'validation_rules' => [
-    'domain_mode' => 'disabled'
-  ],
-  'status' => 'active'
+// Create a local product
+$product = \App\Models\Product::create([
+    'name' => 'Demo Product',
+    //'provider' => 'local'
+]);
+
+// Create a user
+$user = \App\Models\User::create([
+    'name' => 'Demo User',
+    'email' => 'demo@example.com',
+    'password' => bcrypt('secret'),
+]);
+
+// Create the license
+$license = \App\Models\License::create([
+    'user_id' => $user->id,
+    'product_id' => $product->id, //optional
+    'license_key' => strtoupper(Str::uuid()),
+    'status' => 'active',
+    'validation_rules' => [
+        'domain_mode' => 'disabled',
+        'cycle' => 'monthly',
+    ],
+    'expires_at' => now()->addMonth(),
 ]);
 ```
 
-If `expires_at` is set to `null`, the license is considered lifetime.
-
-`validation_rules` Examples (supported options)
-- **No domain validation (default)**
-```php
-'validation_rules' => [
-    'domain_mode' => 'disabled'
-]
-```
-→ License will work from any domain.
-→ No domain checking at all.
-
-- **Single domain lock (auto-binding)**
-```php
-'validation_rules' => [
-    'domain_mode' => 'single'
-]
-```
-→ First successful verification will store domain in the license.
-→ Subsequent requests must always use that domain.
-
-- **Multi-domain allowed (pre-defined)**
-```php
-'validation_rules' => [
-    'domain_mode' => 'multi',
-    'domains' => [
-        'domain1.com',
-        'domain2.com',
-        'another.com'
-    ]
-]
-```
-→ License will only be valid if the requested domain matches one of the listed domains.
+> 🧠 Tip: If `expires_at` is `null`, the license is considered **lifetime**.
 
 ---
 
-## API Endpoint: License Verification
+## 🧪 License Verification
 
-`POST /api/verify`
-
-### Parameters:
-- `license_key` (required)
-- `domain` (optional depending on validation_rules)
-
-### Example Response:
-
+POST `/api/verify`  
 ```json
 {
-  "status": "valid",
-  "message": "License is valid",
-  "expires_at": "2025-07-15 00:00:00",
-  "update": {
-    "latest_version": "2.3.5",
-    "download_url": "https://yourdomain.com/update.zip"
-  }
+  "license_key": "YOUR-LICENSE-KEY",
+  "domain": "example.com"
 }
 ```
 
+### Possible validation rules:
+```json
+{
+  "domain_mode": "single | multi | disabled",
+  "domain": "example.com",
+  "domains": ["example.com", "sub.example.com"],
+  "cycle": "monthly"
+}
+```
 ---
 
-## Managing `update_payload`
+## 🔁 Scheduled License Expiration
+
+LLLS includes a scheduled task to automatically deactivate expired licenses.
+
+**🛠 Artisan Command:**
+
+```bash
+php artisan licenses:check-expirations
+```
+
+This command reviews all licenses with status `active` and:
+
+- If the license has a past `expires_at`, it is marked as `inactive`.
+- The logic respects the product's `provider`:
+  - If the product is `local` or `product_id` is null, it uses `validation_rules` to determine expiration (key `cycle`).
+  - If the product is from an external provider (`hotmart`, `stripe`, etc.), it only compares `expires_at` to the current date.
+
+**🗓️ Schedule Configuration:**
+This command is scheduled to run hourly by default using Laravel's scheduler. You can change this in `config/llls.php`:
+
+```php
+'check_license_schedule' => 'hourly', // Options: hourly, daily, weekly...
+```
+
+Make sure to register Laravel's scheduler in your server's crontab:
+
+```bash
+* * * * * php /path/to/your/project/artisan schedule:run >> /dev/null 2>&1
+```
+
+---
+
+## 🔄 Managing `update_payload`
 
 These artisan commands allow you to fully manage the `update_payload` field of any license.
-
 
 ### Create or Update `update_payload`
 
@@ -228,98 +244,68 @@ Removes the entire `update_payload` from a license.
 php artisan license:clear-payload TEST-ABC-123
 ```
 
-## Commands Summary
+---
 
-| Command                          | Purpose                                    |
-|---------------------------------|--------------------------------------------|
-| license:update-payload          | Create or update `update_payload`         |
-| license:show-payload            | View current `update_payload`             |
-| license:clear-payload           | Remove `update_payload` completely        |
+## 🛠 Artisan Commands
+
+| Command | Description |
+|--------|-------------|
+| `php artisan licenses:show-payload {license_key}` | View `update_payload` of a license |
+| `php artisan licenses:update-payload {license_key} '{"url": "https://..."}'` | Update `update_payload` |
+| `php artisan licenses:clear-payload {license_key}` | Clear `update_payload` |
+| `php artisan licenses:check-expirations` | Disable expired licenses |
+| `php artisan licenses:renew {license_key}` | Manually renew license cycle |
 
 ---
 
-## Scheduled License Expiration
+## 🌐 Webhook Endpoint
 
-Licenses that are `active` and have an `expires_at` date in the past will be automatically set to `inactive`.
+POST `/api/webhooks/hotmart`  
+Receives any Hotmart v2 webhook payload. All events are handled based on the map in `config/llls.php`.
 
-This is handled by the scheduled command:
+---
 
-```php
-php artisan licenses:check-expirations
+## 🔗 LicenseConnector PHP Library
+
+We recommend using the official connector:
+**GitHub**: [https://github.com/spoadev/llls-connector](https://github.com/spoadev/llls-connector)  
+Install via Composer:
+
+```bash
+composer require spoadev/llls-connector
 ```
 
-Laravel runs this using the scheduler, defined in `ScheduledTaskServiceProvider.php`:
+---
 
-```php
-$schedule->command('licenses:check-expirations')->hourly();
-```
+## 📂 Deployment Notes
 
-Be sure to set up your server cron:
-
-```
-* * * * * cd /path/to/project && php artisan schedule:run >> /dev/null 2>&1
-```
+- The Laravel `public/` directory must be set as the root in your webserver (vhost).
+- Logs are stored using default Laravel `storage/logs/laravel.log`.
+- No frontend views included – fully headless.
 
 ---
 
-## License Status Values
+## 📌 To Do
 
-- `active`: Valid and functioning license
-- `inactive`: Expired or deactivated
-- `cancelled`: Permanently cancelled license
-
----
-
-## Debug Logging
-
-If `debug` is enabled in `config/llls.php`, every license verification attempt will be logged to `storage/logs/laravel.log` with:
-- license key
-- IP
-- domain
-- status
+- UI admin panel
+- Stripe webhook integration
+- More granular permission control
+- License history / audit
+- Rate limiting & abuse protection
 
 ---
 
-## LLLS Connector
+## 📝 Changelog
 
-The official [LLLS Connector](https://github.com/spoadev/llls-connector) PHP package for this server is available.
-This package allows any PHP application (Laravel, WordPress, Symfony, custom) to:
-- Verify license keys
-- Send domain information
-- Automatically receive update payloads
-
----
-
-## ToDo
-
-- Web-based CRUD for licenses and products
-- Role-based management UI
-- Dynamic expiration based on `cycles` with UI
-- License usage analytics
-- Client-side SDKs for more platforms (JS, Python, etc.)
-- Payload templating and inheritance
-
----
-
-# Changelog
-## [1.0.0] - 2025-04-15
+### v1.0.0 (2025-04-16)
 - Initial Laravel 11 setup
-- User, roles and permissions system using Spatie
-- `/api/verify` endpoint with:
-  - License status validation
-  - Domain validation (disabled, single, multi)
-  - Expiration handling
-  - Debug logging
-- License expiration cleanup via scheduler (`licenses:check-expirations`)
-- Config file `config/llls.php` with:
-  - License cycle definitions
-  - Debug toggle
-  - Scheduler frequency
-- License update payload support (`update_payload`)
-- Artisan commands to manage payloads:
-  - `license:update-payload`
-  - `license:show-payload`
-  - `license:clear-payload`
+- Roles & Permissions with Spatie
+- License validation API
+- Webhook support for Hotmart
+- Artisan commands for payloads & expirations
+- Lifetime & cycle-based licenses
+- Metadata for products & licenses
 
-### License
+## License
+
 MIT
